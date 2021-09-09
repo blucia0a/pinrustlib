@@ -1,0 +1,5 @@
+create librustlib.a
+addlib libpinlibtest.a
+addlib rustlib/target/debug/librustlib.a
+save
+end

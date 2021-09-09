@@ -1,0 +1,21 @@
+TEST_TOOL_ROOTS := bp_pintool
+TEST_ROOTS :=
+SANITY_SUBSET :=
+TOOL_ROOTS :=
+SA_TOOL_ROOTS :=
+APP_ROOTS :=
+OBJECT_ROOTS :=
+DLL_ROOTS :=
+LIB_ROOTS :=
+
+TOOL_CXXFLAGS += -std=c++11 -I.
+TOOL_OBJECTS = \
+	$(OBJDIR)bp_main$(OBJ_SUFFIX)
+TOOL_LIBS += -lrustlib
+TOOL_LPATHS += -L..
+TOOL_LDFLAGS += -Wl,-rpath,/home/blucia/cvsandbox/pinlib-test
+
+$(OBJDIR):
+
+$(OBJDIR)bp_pintool$(PINTOOL_SUFFIX): $(TOOL_OBJECTS)
+	$(LINKER) $(TOOL_LDFLAGS) $(LINK_EXE)$@ $(TOOL_OBJECTS) $(TOOL_LPATHS) $(TOOL_LIBS)
