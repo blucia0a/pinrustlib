@@ -202,11 +202,12 @@ A working pintool linked to a Rust runtime
 The result at this point is a working pintool that calls into a Rust library
 via a C library built with the PinCRT.  It may be possible to eliminate the C
 library that builds with PinCRT and directly link the no_std Rust library to
-the pintool.
+the pintool.  The Makefile situation for building the C library also needs to
+improve, because right now it is a direct copy-paste job that needs manual
+patching for each new system on which this project is built.
 
 The no_std Rust library faces some limitations and is essentially like
-programming for an embedded platform.  For example:
-https://docs.rust-embedded.org/book/.
+programming for an embedded platform, like here: https://docs.rust-embedded.org/book/.
 
 This toy example is intended to be a jumping off point for others interested
 in building pintools using Rust.  Hopefully this whole project gets less
