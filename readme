@@ -1,0 +1,71 @@
+A failed attempt at building a Rust library that natively links to a pintool.
+-----------------------------------------------------------------------------
+Brandon Lucia, September 2021
+
+This project is a failed (ongoing?) attempt to make a Rust library (either
+static or shared/dynamic) that can be linked into a pintool
+(https://pintool.org).  The motivation behind this project was to allow
+development of an architectural simulator written entirely in Rust that would
+consume operations generated from analysis functions instrumented into an x86
+binary by Pin. 
+
+There are several things that made this project more complex than it
+initially seemed to be.  This README will serve as both informative and
+narrative of the experiment and how it arrived at this apparent failure point.
+
+Attempt #1: Build a Rust shared library that links to a pintool without
+-----------------------------------------------------------------------
+thinking too hard about it.
+-----------------------------------------------------------------------
+
+This attempt entailed first writing a no-op runtime library in Rust that a
+C/C++ program can natively refer to.  This process is well-documented (e.g.,
+https://docs.rust-embedded.org/book/interoperability/rust-with-c.html).
+
+The steps in this process are:
+
+1)cargo new --lib rustlib
+2)Edit Cargo.toml to include the following lines:
+
+```
+[lib]
+crate_type = ["cdylib"] 
+```
+
+3)In lib.rs add the following lines, defining an un-mangled API function exposed by the Rust library:
+
+```
+#[no_mangle]
+pub extern "C" fn rust_run() {}
+```
+
+4)Build the rust library (cargo build) and see that
+target/debug/librustlib.so exists.  `nm librustlib.so` should report that
+(among many other things) rust_run exists.
+
+
+After building the Rust library, the next step in the process is to build the
+pintool.  Building the pintool here happens in the usual way, except that the
+makefile.rules for the pintool should be modified to add -lrustlib and
+-L<path>/<to>/<librustlib> to the existing contents of the TOOL_LPATHS and
+TOOL_LIBS variables.
+
+At this point, it seemed like the process was successful!  Not so.
+
+Mystery: librustlib.so "not found"
+----------------------------------
+Running the pintool reports that librustlib.so is not found by dlopen.  That
+is usually the error when LD_LIBRARY_PATH incorrectly does not include the
+path to a shared library that a program attempts to load.  In this instance, the library path was correct.  In fact, re-building the pintool and adding -Wl,-rpath,<path>/<to>/<librustlib> so that the pintool is built to always use the same path also fails with the same error.
+
+After a lot of digging, I found that all libraries linked to any pintool must be linked to Pin's customized C runtime library (PinCRT) or nothing works.  The docs for this process are sparse and hard to find.  This thread helped (https://stackoverflow.com/questions/37707344/how-to-link-dramsim2-library-interface-with-a-pintool).  The PinCRT reference (https://software.intel.com/sites/landingpage/pintool/docs/98332/PinCRT/PinCRT.pdf) includes steps for building a library against PinCRT.  
+
+The process is essentially to convince the library's makefile to produce a
+command line similar to the build command line that runs when building a
+pintool.  That command line includes lots of pin-specific include paths,
+pre-processor directives, library paths, and libraries.  
+
+
+Attempt #2: Build a C shared library that links to a pintool
+------------------------------------------------------------
+Using the PinCRT reference mentioned above, the next step was to forget about Rust.
