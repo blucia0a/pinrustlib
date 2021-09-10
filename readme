@@ -68,4 +68,27 @@ pre-processor directives, library paths, and libraries.
 
 Attempt #2: Build a C shared library that links to a pintool
 ------------------------------------------------------------
-Using the PinCRT reference mentioned above, the next step was to forget about Rust.
+Using the PinCRT reference mentioned above, the next step was to forget about
+Rust.  A good intermediate step was to try building any C shared library that
+links to a pintool.  The steps in the PinCRT reference produce a library that
+did not work correctly when linked to, and called from the pintool.  The
+problem was either failing to dlopen ("not found" again) or to fail to find
+the symbol (even when that symbol is properly marked extern "C" to avoid C++
+name mangling).
+
+A hack that is not good software engineering worked: a copy/paste of the pintool build command line with the library's source and output file swapped in built and loaded successfully in the pintool. 
+
+This process confirms that building a shared library using the command line that the pintool uses when it builds produces a shared library that a pintool can load and call into.  The key here is that the library does not refer to any standard libraries, including and especially the native C runtime library.
+
+Attempt #3: Build a Rust static library and try linking it to a C shared
+------------------------------------------------------------------------
+library that works for Pin
+--------------------------
+The process to build a Rust static library is similar to the one to build a shared library (thanks to cargo for being easy to use).  The only change is in Cargo.toml, replacing "cdylib" with "staticlib".  cargo build produces librustlib.a in target/debug/.  Next, the C shared library's build includes the -L path o the static library and the -llibrary flag and things build correctly.  This strategy also fails because the Rust static library includes the Rust runtime, which refers to shared libraries, including the C runtime library (not PinCRT).  Consequently, this option also fails, producing a shared library that dlopen in the pintool fails to load ("not found" again).
+
+Attempt #4: Build a Rust static library and try linking it to a C static
+------------------------------------------------------------------------
+library that gets compiled directly into the pintool
+----------------------------------------------------
+This process entails building both libraries as static libraries (the same
+as Attempt #3 for the Rust variant) and the usual way using gcc for the C static library (i.e., -static, and then running ar rcs liblibrary.a library.o after compiling).  This process combines the  
