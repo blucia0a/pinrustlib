@@ -27,17 +27,13 @@ The steps in this process are:
 1)cargo new --lib rustlib
 2)Edit Cargo.toml to include the following lines:
 
-```
-[lib]
-crate_type = ["cdylib"] 
-```
+    [lib]
+    crate_type = ["cdylib"] 
 
 3)In lib.rs add the following lines, defining an un-mangled API function exposed by the Rust library:
 
-```
-#[no_mangle]
-pub extern "C" fn rust_run() {}
-```
+    #[no_mangle]
+    pub extern "C" fn rust_run() {/*Do some simulation stuff here*/}
 
 4)Build the rust library (cargo build) and see that
 target/debug/librustlib.so exists.  `nm librustlib.so` should report that
@@ -84,11 +80,108 @@ Attempt #3: Build a Rust static library and try linking it to a C shared
 ------------------------------------------------------------------------
 library that works for Pin
 --------------------------
-The process to build a Rust static library is similar to the one to build a shared library (thanks to cargo for being easy to use).  The only change is in Cargo.toml, replacing "cdylib" with "staticlib".  cargo build produces librustlib.a in target/debug/.  Next, the C shared library's build includes the -L path o the static library and the -llibrary flag and things build correctly.  This strategy also fails because the Rust static library includes the Rust runtime, which refers to shared libraries, including the C runtime library (not PinCRT).  Consequently, this option also fails, producing a shared library that dlopen in the pintool fails to load ("not found" again).
+The process to build a Rust static library is similar to the one to build a
+shared library (thanks to cargo for being easy to use).  The only change is
+in Cargo.toml, replacing 
+
+
+    [lib]
+    crate_type = ["cdylib"]
+
+with
+
+    [lib]
+    crate_type = ["staticlib"]
+
+Running `$cargo build` produces librustlib.a in target/debug/.  Next, the C
+shared library's Makefile is modified to include the -L path and -l flag for
+the library and things build correctly.  
+
+Unfortunately, this strategy also fails because the Rust static library
+includes the Rust runtime, which refers to shared libraries, including the C
+runtime library (not PinCRT).  Consequently, this option also fails,
+producing a shared library that dlopen in the pintool fails to load ("not
+found" again).
 
 Attempt #4: Build a Rust static library and try linking it to a C static
 ------------------------------------------------------------------------
 library that gets compiled directly into the pintool
 ----------------------------------------------------
-This process entails building both libraries as static libraries (the same
-as Attempt #3 for the Rust variant) and the usual way using gcc for the C static library (i.e., -static, and then running ar rcs liblibrary.a library.o after compiling).  This process combines the  
+This process entails building both libraries as static libraries and then
+merging them together (i.e., the same as Attempt #3 for the Rust variant) and
+the usual way using gcc for the C static library (i.e., running `ar rcs
+liblibrary.a library.o` after compiling).  
+
+With both static libraries in hand (librustlib.a and libpinlibtest.a), the next step is to merge them together.  This step happens using ar's ability to process an MRI librarian script (an apparent relic and esoteric mechanism).
+
+The script is simple enough
+
+
+    $cat libmerge.mri
+    create librustlib.a
+    addlib libpinlibtest.a
+    addlib target/debug/librustlib.a
+    save
+    end 
+
+and it gets invoked in the Makefile using ar's MRI script option:
+
+
+    ar -M <libmerge.mri
+
+
+The result of these commands is a single library in librustlib.a that
+contains all of the code compiled into libpinlibtest.a and
+target/debug/librustlib.a.
+
+This seemed like it would almost work, but unfortunately fails again.  The
+problem with this approach is that target/debug/librustlib.a also links to
+the C standard library implementation that Rust uses.  
+
+Attempt #5: Build a Rust static library without its own standard library and
+------------------------------------------------------------------------
+try linking it to a C static library that gets compiled directly into the
+----------------------------------------------------
+pintool
+-------
+This attempt was a partial success.  The goal this time was to build both of these libraries as static libraries, but to exclude the standard library from the rust part of the library.  The way to exclude Rust's standard library (which evidently also excludes Rust's C runtime) is to include 
+
+    #![no_std]
+
+at the top of your lib.rs.  Doing so has the side effect of erasing some
+useful functionality from the crate.  To add that functionality back in
+requires adding a few extra things to Cargo.toml and to your lib.rs. 
+The minimal lib.rs that works with `#![no_std]` requires a code that does something when Rust panics and looks like this:
+    
+    #![no_std]
+
+    use core::panic::PanicInfo;
+
+    #[no_mangle]
+    pub extern "C" fn rust_run(addr: i64) {
+
+    }
+
+    #[panic_handler]
+    fn panic(_panic: &PanicInfo<'_>) -> ! {
+        loop {}
+    }
+
+Cargo.toml needs a few additions, too, to tell the system what to do on panic:
+
+    [profile.dev]
+    panic = "abort"
+
+    [profile.release]
+    panic = "abort"
+
+With this version linked together with the static C library, the pintool
+builds!  In fact, the pintool even runs!  The code is written so that a
+function in the C library calls a function in the Rust library.  The C
+function can do whatever it wants and that seems to work correctly.  The 
+C function can be made to call an empty Rust function and that works without
+anything bad happening.  Things get weird, though.
+
+If the Rust function accepts an `i64` argument and returns an `i64`, and the
+C function passes in an `unsigned long` and expects to be returned and
+`unsigned long`, the code works sometimes.  When the Rust function returns its input operand, unmodified, the code seems to work and the correct value ends up back in the C function.  However, when the Rust function tries manipulating 

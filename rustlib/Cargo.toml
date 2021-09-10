@@ -14,3 +14,7 @@ panic = "abort"
 panic = "abort"
 
 [dependencies]
+
+[features]
+default = ["mem"]
+mem = []
