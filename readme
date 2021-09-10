@@ -1,17 +1,23 @@
-A failed attempt at building a Rust library that natively links to a pintool.
+Building a Rust library that natively links to a pintool.
 -----------------------------------------------------------------------------
-Brandon Lucia, September 2021
+Brandon Lucia 
+September 10-12 2021
 
-This project is a failed (ongoing?) attempt to make a Rust library (either
+This project is an ongoing attempt to make a Rust library (either
 static or shared/dynamic) that can be linked into a pintool
-(https://pintool.org).  The motivation behind this project was to allow
-development of an architectural simulator written entirely in Rust that would
-consume operations generated from analysis functions instrumented into an x86
-binary by Pin. 
+(https://pintool.org).  
+
+The motivation behind this project was to allow development of an
+architectural simulator written entirely in Rust that would consume
+operations generated from analysis functions instrumented into an x86 binary
+by Pin. 
 
 There are several things that made this project more complex than it
 initially seemed to be.  This README will serve as both informative and
-narrative of the experiment and how it arrived at this apparent failure point.
+narrative of the experiment and how it arrived at this apparently working
+(albeit limited) point. 
+
+The structure of this readme is in Attempts, which chronicle what does *not* work and why.
 
 Attempt #1: Build a Rust shared library that links to a pintool without
 -----------------------------------------------------------------------
@@ -179,9 +185,29 @@ With this version linked together with the static C library, the pintool
 builds!  In fact, the pintool even runs!  The code is written so that a
 function in the C library calls a function in the Rust library.  The C
 function can do whatever it wants and that seems to work correctly.  The 
-C function can be made to call an empty Rust function and that works without
-anything bad happening.  Things get weird, though.
+C function can be made to call a Rust function and then things break again.
+The error this time is that `bcmp()` is not found when loading the pintool.
+This error is a weird one because Rust is not using the standard library and the C library should point to whatever memory manipulation functions are available in the Pin C runtime (i.e., if that means `bcmp()`, then it should be in PinCRT).
 
-If the Rust function accepts an `i64` argument and returns an `i64`, and the
-C function passes in an `unsigned long` and expects to be returned and
-`unsigned long`, the code works sometimes.  When the Rust function returns its input operand, unmodified, the code seems to work and the correct value ends up back in the C function.  However, when the Rust function tries manipulating 
+Rust gets compiled by LLVM and LLVM9 replaces some calls to `memcmp()` with
+calls to `bcmp()`.  The `bcmp()` builtin is apparently deprecated and now may
+not be available at runtime on some platforms (like PinCRT apparently).  The
+problem is documented sporadically on the internet (e.g.:
+https://github.com/rust-lang/compiler-builtins/issues/303).  The problem is
+resolved by directly implementing `bcmp()` (e.g., from here:
+https://opensource.apple.com/source/Libc/Libc-167/gen.subproj/i386.subproj/bcmp.c.auto.html).
+
+A working pintool linked to a Rust runtime
+==========================================
+The result at this point is a working pintool that calls into a Rust library
+via a C library built with the PinCRT.  It may be possible to eliminate the C
+library that builds with PinCRT and directly link the no_std Rust library to
+the pintool.
+
+The no_std Rust library faces some limitations and is essentially like
+programming for an embedded platform.  For example:
+https://docs.rust-embedded.org/book/.
+
+This toy example is intended to be a jumping off point for others interested
+in building pintools using Rust.  Hopefully this whole project gets less
+complicated and more useful with time.
